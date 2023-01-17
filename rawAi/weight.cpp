@@ -20,6 +20,16 @@ int random_weights(Weight* weights, UInt32 count_weight, Float64 range)
 	return 0;
 }
 
+int He_initialization(Weight* weights, UInt32* weight_start_point, UInt32* weight_count, UInt32* input_node_count, UInt32 layer_count)
+{
+	srand(0);
+	for (int layer = 0; layer < layer_count; layer++)
+		for (int i = 0; i < weight_count[layer]; i++)
+			weights[weight_start_point[layer] + i] = ((((Weight)rand() / (Weight)(RAND_MAX)) * 2) - 1) * sqrt(6.0 / input_node_count[layer]);
+	
+	return 0;
+}
+
 int random_gaussian_weights(Weight* weights, UInt32 count_weight)
 {
 	srand(0);

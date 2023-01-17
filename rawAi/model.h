@@ -14,7 +14,7 @@ int fcn_forward_propagation(Float64* input_data, Model* model);
 int fcn_backward_propagation(Model* model, Float64* input_data, UInt8 label, LR learning_rate, Output* loss_function_derv_fcn, Bool get_derv);
 
 Output convolution(Output* filter, Float64* patch, UInt32 filter_size);
-Output get_gradient(Output* kernel, Float64* block, UInt32 block_size, Activation_Function active_function);
+Output get_gradient(Output* kernel, Float64* block, Output* feature_patch, UInt32 block_size, Activation_Function active_function);
 Output max_pooling(Output* window, UInt32 window_size, UInt32* max_pooling_address_map, UInt32 address);
 Output avg_pooling(Output* window, UInt32 window_size);
 
@@ -27,3 +27,4 @@ int backward_propagation(Model* model, Float64* input_data, UInt8 label, LR lear
 UInt8 predict(Float64* image, Model* model);
 Float64 accuracy_score(Data* testdata, Model* model);
 
+void DoProgress(const char label[], int step, int total);

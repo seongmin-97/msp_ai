@@ -1,6 +1,8 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<float.h>
+#include<string.h>
+#include<time.h>
 
 #include"model.h"
 #include"weight.h"
@@ -9,7 +11,6 @@
 Model create_Model(Model_Input func_input)
 {
 	Model model;
-	Model_Input* input = &(model.input);
 	model.input = func_input;
 
 	initialize_Model(&model);
@@ -66,6 +67,9 @@ int initialize_Model(Model* model)
 		UInt32 before_layer_weights_count = 0;
 		UInt32 before_channel_count = 0;
 		UInt32 now_layer_weights_count = 0;
+		UInt32* kernel_weight_count = (UInt32*)calloc(initializer->Conv_layer_count, sizeof(UInt32));
+		UInt32* input_feature_count = (UInt32*)calloc(initializer->Conv_layer_count, sizeof(UInt32)); // He_initalization 조건에 충족하는, kernel이 한 번에 받는 인풋
+
 		for (int layer = 0; layer < initializer->Conv_layer_count; layer++)
 		{
 			before_layer_weights_count = (layer == 0) ? 0 : now_layer_weights_count; 
@@ -75,9 +79,15 @@ int initialize_Model(Model* model)
 			initializer->kernel_start_point[layer] = (layer == 0) ? 0 : initializer->kernel_start_point[layer - 1] + before_layer_weights_count;
 
 			initializer->cnn_weights_count += now_layer_weights_count;
+			kernel_weight_count[layer] = now_layer_weights_count;
+			input_feature_count[layer] = model_input->cnn_kernel_size[layer] * model_input->cnn_kernel_size[layer] * ((layer == 0) ? CHANNEL : model_input->channel_count[layer - 1]);
 		}
 		parameters->CNN.kernels = (Output*)calloc(initializer->cnn_weights_count, sizeof(Output));
-		random_weights(parameters->CNN.kernels, initializer->cnn_weights_count, 0.2);
+		//random_weights(parameters->CNN.kernels, initializer->cnn_weights_count, 0.2);
+		He_initialization(parameters->CNN.kernels, initializer->kernel_start_point, kernel_weight_count, input_feature_count, initializer->Conv_layer_count);
+
+		free(kernel_weight_count);
+		free(input_feature_count);
 
 		// feature map에 대한 설정
 		UInt32 Conv_plus_Pooling = initializer->Conv_layer_count + initializer->Pooling_layer_count;
@@ -165,6 +175,8 @@ int initialize_Model(Model* model)
 		// 입력으로 넣어준 모델 참고하여, 레이어 개수 노드 개수 이용해 총 가중치 수 계산 + 각 레이어의 weight, output 시작 주소 계산
 		initializer->weight_start_point = (UInt32*)calloc(initializer->FCN_layer_count, sizeof(UInt32));
 		initializer->node_start_point = (UInt32*)calloc(initializer->FCN_layer_count, sizeof(UInt32));
+		UInt32* weight_count = (UInt32*)calloc(initializer->FCN_layer_count, sizeof(UInt32));
+		UInt32* input_node_count = (UInt32*)calloc(initializer->FCN_layer_count, sizeof(UInt32));
 
 		for (int layer = 0; layer < initializer->FCN_layer_count; layer++)
 		{
@@ -177,6 +189,8 @@ int initialize_Model(Model* model)
 
 			count_weight += now_layer_weights_count;
 			count_output += model_input->node_count[layer];
+			weight_count[layer] = now_layer_weights_count;
+			input_node_count[layer] = (layer == 0) ? model->initializer.input_dimension : model_input->node_count[layer - 1];
 		}
 
 		initializer->fcn_weights_count = count_weight;
@@ -184,7 +198,11 @@ int initialize_Model(Model* model)
 		model->parameters.FCN.weights = (Weight*)malloc(sizeof(Weight) * count_weight);
 		model->parameters.FCN.nodes = (Output*)calloc(count_output, sizeof(Output));
 
-		random_weights(model->parameters.FCN.weights, count_weight, 0.2);
+		//random_weights(model->parameters.FCN.weights, count_weight, 0.2);
+		He_initialization(model->parameters.FCN.weights, initializer->weight_start_point, weight_count, input_node_count, initializer->FCN_layer_count);
+		
+		free(weight_count);
+		free(input_node_count);
 	}
 
 	return 0;
@@ -205,9 +223,11 @@ int train_Model(Model* model, Data* trainData, Data* testData, UInt32 Epoch)
 
 		Float64* input_image = (Float64*)calloc(WIDTH * HEIGHT, sizeof(Float64));
 		Output* fcn_input = (Output*)calloc(model->initializer.input_dimension, sizeof(Output));
+		UInt32 train_num = 0;
 
 		while (1)
 		{
+			//srand(time(NULL));
 			random_label = rand() % 10;
 			UInt32 idx = used_data[random_label];
 			UInt32 random_label_count = trainData->label_count[random_label];
@@ -232,6 +252,9 @@ int train_Model(Model* model, Data* trainData, Data* testData, UInt32 Epoch)
 			backward_propagation(model, input_image, random_label, model->input.learning_rate, fcn_input);
 
 			used_data[random_label]++;
+			train_num++;
+
+			DoProgress("Train ", train_num, 60000);
 		}
 
 		free(input_image);
@@ -348,22 +371,23 @@ int fcn_backward_propagation(Model* model, Float64* input_data, UInt8 label, LR 
 	return 0;
 }
 
+
+Output get_gradient(Output* kernel, Float64* block, Output* feature_patch, UInt32 block_size, Activation_Function active_function)
+{
+	Output result = 0;
+
+	for (int i = 0; i < block_size; i++)
+		result += kernel[i] * block[i] * derivative_activation_function(feature_patch[i], active_function);
+
+	return result;
+}
+
 Output convolution(Output* kernel, Float64* block, UInt32 block_size)
 {
 	Output result = 0;
 
 	for (int i = 0; i < block_size; i++)
 		result += kernel[i] * block[i];
-
-	return result;
-}
-
-Output get_gradient(Output* kernel, Float64* block, UInt32 block_size, Activation_Function active_function)
-{
-	Output result = 0;
-
-	for (int i = 0; i < block_size; i++)
-		result += kernel[i] * block[i] * derivative_activation_function(block[i], active_function);
 
 	return result;
 }
@@ -386,6 +410,7 @@ Output avg_pooling(Output* window, UInt32 window_size)
 	Output mean = 0;
 	for (int i = 0; i < window_size; i++)
 		mean += window[i];
+
 	return mean / (Output) window_size;
 }
 // cnn이 항상 fcn보다 앞에 올 경우만 고려하여 작성함
@@ -467,7 +492,7 @@ int cnn_forward_propagation(Float64* input_data, Model* model)
 				if (layer_type == Convolution)
 					get_block(before_feature_map_start_point, before_channel, before_width, before_height, x, y, kernel_size, 0, (layer == 0) ? input_data : parameters->feature_map, block);    // featuremap block
 				else
-					get_patch(before_feature_map_start_point, channel, before_width, before_height, 0, pooling_window_size, x, y, (layer == 0) ? input_data : parameters->feature_map, block, patch, True); //featuremap block
+					get_patch(before_feature_map_start_point, channel, before_width, before_height, 0, pooling_window_size, x, y, (layer == 0) ? input_data : parameters->feature_map, block, patch, True); //featuremap patch
 
 				for (int c = 0; c < channel; c++)
 				{
@@ -478,7 +503,7 @@ int cnn_forward_propagation(Float64* input_data, Model* model)
 						get_kernel(kernel_start_point, c, kernel_size, before_channel, parameters->kernels, kernel);
 						parameters->feature_map[pixel_location] = activation_function(convolution(kernel, block, block_size), model_input->activation[layer]);
 						break;
-					case MaxPooling : // CHECK 필요
+					case MaxPooling : 
 						pixel_location = get_feature_map_address(feature_map_start_point, c, width, height,  x / stride, y / stride);
 						max_pooling_address_location = get_feature_map_address(max_pooling_address_map_start_point, c, width, height, x / stride, y / stride);
 						get_patch(before_feature_map_start_point, before_channel, before_width, before_height, c, pooling_window_size, x, y, (layer == 0) ? input_data : parameters->feature_map, block, patch, False);
@@ -524,7 +549,8 @@ int cnn_backward_propagation(Model* model, Float64* input_data, LR learning_rate
 	Int32 max_pooling_layer_idx = initializer->Max_Pooling_layer_count;
 
 	// 불러올 kernel과 block을 저장할 변수
-
+	Output* feature_block = (Output*)calloc(1, sizeof(Output));
+	Output* feature_patch = (Output*)calloc(1, sizeof(Output));
 	Output* buffer_block = (Output*)calloc(1, sizeof(Output));
 	Output* patch = (Output*)calloc(1, sizeof(Output));
 	Output* gradient_patch = (Output*)calloc(1, sizeof(Output));
@@ -568,7 +594,8 @@ int cnn_backward_propagation(Model* model, Float64* input_data, LR learning_rate
 			patch_size = kernel_size * kernel_size;
 			padding_size = (kernel_size - 1) / 2;
 
-
+			feature_block =  (Output*)realloc(feature_block, buffer_block_size * sizeof(Output));
+			feature_patch =  (Output*)realloc(feature_patch, patch_size * sizeof(Output));
 			buffer_block =   (Output*)realloc(buffer_block, buffer_block_size * sizeof(Output));							    // buffer_block   : 현재 feature_map에서 block을 가져오는 것 
 			kernel =	     (Weight*)realloc(kernel, kernel_block_size * sizeof(Weight));										// kernel		  : 현재 kernel을 block으로, 두께는 before_channel
 			inverse_kernel = (Weight*)realloc(inverse_kernel, kernel_block_size * sizeof(Weight));								// inverse_kernel : 크기는 kernel과 동일
@@ -591,8 +618,11 @@ int cnn_backward_propagation(Model* model, Float64* input_data, LR learning_rate
 		// local gradient 저장
 		if (layer == conv_plus_pulling - 1)
 			for (int i = 0; i < feature_map_size; i++)
-				buffer_feature_map[feature_map_start_point + i] = loss_func_derv_fcn[i];
-
+			{
+					buffer_feature_map[feature_map_start_point + i] = loss_func_derv_fcn[i] /** derivative_activation_function(parameters->feature_map[feature_map_start_point + i], model_input->activation[layer])*/;
+				//else
+					//buffer_feature_map[feature_map_start_point + i] *= derivative_activation_function(parameters->feature_map[feature_map_start_point + i], model_input->activation[layer]);
+			}
 		// 역전파
 		
 		// buffer update
@@ -603,38 +633,42 @@ int cnn_backward_propagation(Model* model, Float64* input_data, LR learning_rate
 					switch (layer_type)
 					{
 					case MaxPooling:
+					{
 						max_pooling_address_location = get_feature_map_address(max_pooling_address_map_start_point, c, width, height, x / stride, y / stride);
 						max_pooling_address = parameters->max_pooling_address_map[max_pooling_address_location];
 						// gradient address : 흘러들어온 미분값을 불러올 주소
 						patch_start_address = get_feature_map_address(before_feature_map_start_point, c, before_width, before_height, x, y);
 						gradient_address = get_feature_map_address(feature_map_start_point, c, width, height, x / stride, y / stride);
 						buffer_feature_map[patch_start_address + max_pooling_address] = buffer_feature_map[gradient_address];
-						
-						break;
 
+						break;
+					}
 					case AvgPooling:
+					{
 						patch_start_address = get_feature_map_address(before_feature_map_start_point, c, before_width, before_height, x, y);
 						gradient_address = get_feature_map_address(feature_map_start_point, c, width, height, x / stride, y / stride);
 
 						for (int i = 0; i < patch_size; i++)
 							buffer_feature_map[patch_start_address + i] = (buffer_feature_map[gradient_address + i] / (Float64)patch_size);
-						
-						break;
 
+						break;
+					}
 					case Convolution:
 						if (layer != 0)
 						{
 							get_block(feature_map_start_point, channel, width, height, x, y, kernel_size, 0, buffer_feature_map, buffer_block);
+							get_block(feature_map_start_point, channel, width, height, x, y, kernel_size, 0, parameters->feature_map, feature_block);
 							for (int kernel_idx = 0; kernel_idx < channel; kernel_idx++)
 							{
 								get_patch(feature_map_start_point, channel, width, height, kernel_idx, kernel_size, x, y, buffer_feature_map, buffer_block, gradient_patch, False);
-								
+								get_patch(feature_map_start_point, channel, width, height, kernel_idx, kernel_size, x, y, parameters->feature_map, feature_block, feature_patch, False);
+
 								get_kernel(kernel_start_point, kernel_idx, kernel_size, before_channel, parameters->kernels, kernel);
 								get_inverse_kernel(kernel, inverse_kernel, kernel_size, before_channel);
 								get_patch(kernel_start_point, before_channel, kernel_size, kernel_size, c, kernel_size, 0, 0, parameters->kernels, inverse_kernel, patch, False);
 								// gradient address : 저장할 feature map 주소
 								gradient_address = get_feature_map_address(before_feature_map_start_point, c, before_width, before_height, x, y);
-								buffer_feature_map[gradient_address] += convolution(patch, gradient_patch, patch_size) * derivative_activation_function(parameters->feature_map[get_feature_map_address(feature_map_start_point, kernel_idx, width, height, x, y)], model_input->activation[layer]);
+								buffer_feature_map[gradient_address] += get_gradient(patch, gradient_patch, feature_patch,  patch_size, model_input->activation[layer]);
 
 								for (int i = 0; i < kernel_size; i++)
 									for (int j = 0; j < kernel_size; j++)
@@ -647,7 +681,7 @@ int cnn_backward_propagation(Model* model, Float64* input_data, LR learning_rate
 										Int32 now_feature_map_address = get_feature_map_address(feature_map_start_point, kernel_idx, width, height, x, y);
 										Int32 before_feature_map_address = get_feature_map_address(before_feature_map_start_point, c, before_width, before_height, x + relative_j, y + relative_i);
 
-										Int32 before_feature;
+										Output before_feature;
 										if (x + relative_j < 0 || y + relative_i < 0 || x + relative_j > width - 1 || y + relative_i > height - 1)
 											before_feature = 0.0;
 										else
@@ -706,6 +740,8 @@ int cnn_backward_propagation(Model* model, Float64* input_data, LR learning_rate
 	for (int i = 0; i < initializer->cnn_weights_count; i++)
 		parameters->kernels[i] += - learning_rate * weight_update[i];
 
+	free(feature_block);
+	free(feature_patch);
 	free(buffer_feature_map);
 	free(weight_update);
 	free(kernel);
@@ -861,4 +897,18 @@ int model_destroy(Model* model)
 	}
 
 	return 0;
+}
+
+void DoProgress(const char label[], int step, int total)
+{
+	const int pwidth = 72;
+	int width = pwidth - strlen(label);
+	int pos = (step * width) / total;
+	int percent = (step * 100) / total;
+	printf("%s[", label);
+
+	for (int i = 0; i < pos; i++)  printf("%c", '=');
+
+	printf("% *c", width - pos + 1, ']');
+	printf(" %3d%%\r", percent);
 }

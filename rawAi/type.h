@@ -24,7 +24,7 @@ typedef enum Boolean
 	False, True
 } Bool;
 
-typedef struct data
+typedef struct data_
 {
 	Float64* data[LABEL];          // data 배열의 각 LABEL 인덱스에 데이터가 입력되어 있음
 	Int32 label_count[LABEL];      // 각 label 별 마다 데이터의 개수
