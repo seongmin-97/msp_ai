@@ -10,6 +10,7 @@
 
 char train_data_path[100] = "D:\\msp_AI\\MNIST\\training\\";
 char test_data_path[100] = "D:\\msp_AI\\MNIST\\testing\\";
+char model_file[100] = "D:\\msp_AI\\rawAi\\model.bin";
 
 int main()
 {
@@ -23,42 +24,50 @@ int main()
 
 	printf("----------------------------------------------\n");
 
-	// 가중치 파라미터 : 184500 노드 수 : 380
-	UInt32 node_count2[] = { 80, 10 };                // fcn 레이어 노드 수,   fcn layer 수 만큼
-	Activation_Function activation2[] = { Relu, None, Relu, None, Relu, Softmax };       // 활성화 함수,          전체 layer 수 만큼
-	Layer layer2[] = { Convolution, MaxPooling, Convolution, MaxPooling, Fully_Connected, Fully_Connected }; // 레이어 종류 순서대로, 전체 레이어 수 만큼
-	UInt32 layer_count2 = 6;                                   // 모든 레이어의 수
-	UInt32 channel_count2[] = { 40, 30 };                 // 각 레이어 별 채널 수, conv layer 수 만큼
-	UInt32 cnn_kernel_size2[] = { 3, 3 };  // 커널 사이즈,          conv layer 수 만큼
-	UInt32 stride2[] = { 1, 1 };           // 보폭 크기,            conv layer 수 만큼
-	UInt32 pooling_window_size2[] = { 2, 2 };                            // 풀링 window size,     pooling layer 수 만큼
-	Float64 learning_rate2 = 0.002;                               // 학습률
-	Metric metric2 = softmax_cross_entropy;               // 손실 함수
+	//// 가중치 파라미터 : 184500 노드 수 : 380
+	//UInt32 node_count2[] = { 80, 10 };                // fcn 레이어 노드 수,   fcn layer 수 만큼
+	//Activation_Function activation2[] = { Relu, None, Relu, None, Relu, Relu, Softmax };       // 활성화 함수,          전체 layer 수 만큼
+	//Layer layer2[] = { Convolution, MaxPooling, Convolution, MaxPooling, Convolution, Fully_Connected, Fully_Connected }; // 레이어 종류 순서대로, 전체 레이어 수 만큼
+	//UInt32 layer_count2 = 7;                                   // 모든 레이어의 수
+	//UInt32 channel_count2[] = { 20, 10, 5 };                 // 각 레이어 별 채널 수, conv layer 수 만큼
+	//UInt32 cnn_kernel_size2[] = { 3, 3, 3 };  // 커널 사이즈,          conv layer 수 만큼
+	//UInt32 stride2[] = { 1, 1, 1 };           // 보폭 크기,            conv layer 수 만큼
+	//UInt32 pooling_window_size2[] = { 2, 2 };                            // 풀링 window size,     pooling layer 수 만큼
+	//Float64 learning_rate2 = 0.002;                               // 학습률
+	//Metric metric2 = softmax_cross_entropy;               // 손실 함수
 
-	Model_Input input2;
+	//Model_Input input2;
 
-	input2.layer = layer2;
-	input2.layer_count = layer_count2;
+	//input2.layer = layer2;
+	//input2.layer_count = layer_count2;
 
-	input2.node_count = node_count2;
-	input2.padding = True;
+	//input2.node_count = node_count2;
+	//input2.padding = True;
 
-	input2.channel_count = channel_count2;
-	input2.cnn_kernel_size = cnn_kernel_size2;
-	input2.stride = stride2;
+	//input2.channel_count = channel_count2;
+	//input2.cnn_kernel_size = cnn_kernel_size2;
+	//input2.stride = stride2;
 
-	input2.pooling_window_size = pooling_window_size2;
+	//input2.pooling_window_size = pooling_window_size2;
 
-	input2.activation = activation2;
-	input2.learning_rate = learning_rate2;
-	input2.metric = softmax_cross_entropy;
+	//input2.activation = activation2;
+	//input2.learning_rate = learning_rate2;
+	//input2.metric = softmax_cross_entropy;
 
-	Model model2 = create_Model(input2);
-	//printf("weight 수 : %d, node 수 : %d \n", model.initializer.all_weights_count, model.initializer.all_nodes_count); // fcn 가중치만 포함
+	//Model model2 = create_Model(input2);
 
-	train_Model(&model2, &trainData, &testData, 20);
-	model_destroy(&model2);
+	//train_Model(&model2, &trainData, &testData, 1, True);
 
+	Model model = load_model(model_file);
+	Float64 score;
+
+	score = accuracy_score(&trainData, &model);
+	printf("Train Data 적용 결과 : %f\n", score);
+	score = accuracy_score(&testData, &model);
+	printf("Test Data 적용 결과 : %f\n", score);
+
+	model_input_destroy(&model);
+	model_destroy(&model);
 
 	data_destroy(&trainData);
 	data_destroy(&testData);

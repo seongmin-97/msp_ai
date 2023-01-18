@@ -8,6 +8,8 @@
 #include"weight.h"
 #include"address.h"
 
+char model_file_name[100] = "D:\\msp_AI\\rawAi\\model.bin";
+
 Model create_Model(Model_Input func_input)
 {
 	Model model;
@@ -35,6 +37,9 @@ int initialize_Model(Model* model)
 	initializer->layer_index = (UInt32*)calloc(model_input->layer_count, sizeof(UInt32));
 	initializer->input_dimension = WIDTH * HEIGHT;
 
+	initializer->cnn_weights_count = 0;
+	initializer->fcn_weights_count = 0;
+
 	for (int layer = 0; layer < model_input->layer_count; layer++)
 	{
 		switch (model_input->layer[layer])
@@ -59,7 +64,6 @@ int initialize_Model(Model* model)
 	// conv_layer 초기화 (체크해야함)
 	if (initializer->Conv_layer_count > 0)
 	{
-		initializer->cnn_weights_count = 0;
 		initializer->kernel_start_point = (UInt32*)calloc(initializer->Conv_layer_count, sizeof(UInt32));
 
 
@@ -208,8 +212,13 @@ int initialize_Model(Model* model)
 	return 0;
 }
 
-int train_Model(Model* model, Data* trainData, Data* testData, UInt32 Epoch)
+int train_Model(Model* model, Data* trainData, Data* testData, UInt32 Epoch, Bool saveModel)
 {
+	Weight* weights = { 0 };
+
+	if (saveModel)
+		weights = (Weight*)calloc(model->initializer.cnn_weights_count + model->initializer.fcn_weights_count, sizeof(Weight));
+
 	for (int epoch = 0; epoch < Epoch; epoch++)
 	{
 		printf("Epoch %d Training\n", epoch + 1);
@@ -254,7 +263,8 @@ int train_Model(Model* model, Data* trainData, Data* testData, UInt32 Epoch)
 			used_data[random_label]++;
 			train_num++;
 
-			DoProgress("Train ", train_num, 60000);
+			if (train_num % 100 == 0)
+				DoProgress("Train ", train_num, 60000);
 		}
 
 		free(input_image);
@@ -265,7 +275,13 @@ int train_Model(Model* model, Data* trainData, Data* testData, UInt32 Epoch)
 		score = accuracy_score(testData, model);
 		printf("Epoch %d Test Data 적용 결과 : %f\n", epoch + 1, score);
 		printf("------------------------------------------\n");
+		
+		if (saveModel)
+			save_weights(model, weights, score);
+
 	}
+	save_model(model, weights, model_file_name);
+	free(weights);
 	return 0;
 }
 
@@ -370,7 +386,6 @@ int fcn_backward_propagation(Model* model, Float64* input_data, UInt8 label, LR 
 
 	return 0;
 }
-
 
 Output get_gradient(Output* kernel, Float64* block, Output* feature_patch, UInt32 block_size, Activation_Function active_function)
 {
@@ -798,6 +813,211 @@ int backward_propagation(Model* model, Float64* input_data, UInt8 label, LR lear
 	return 0;
 }
 
+int save_model(Model* model, Weight* weights, Str* filename)
+{
+	Model_Input* model_input = &(model->input);
+	
+	FILE* fp;
+	UInt32 buffer = 0;
+
+	fopen_s(&fp, filename, "wb");
+
+	// 1. 총 레이어 수 저장
+	buffer = model_input->layer_count;
+	fwrite(&buffer, sizeof(UInt32), 1, fp);
+
+	// 2. cnn layer 수 저장
+	buffer = model->initializer.Conv_layer_count;
+	fwrite(&buffer, sizeof(UInt32), 1, fp);
+
+	// 3. pooling layer 수 저장
+	buffer = model->initializer.Pooling_layer_count;
+	fwrite(&buffer, sizeof(UInt32), 1, fp);
+
+	// 4. fcn layer 수 저장
+	buffer = model->initializer.FCN_layer_count;
+	fwrite(&buffer, sizeof(UInt32), 1, fp);
+
+	// 5. 레이어 종류 / 활성화 함수 순서대로 저장
+	for (int i = 0; i < model_input->layer_count; i++)
+	{
+		buffer = model_input->layer[i];
+		fwrite(&buffer, sizeof(UInt32), 1, fp);
+		buffer = model_input->activation[i];
+		fwrite(&buffer, sizeof(UInt32), 1, fp);
+	}
+
+	// 6. padding 여부 저장
+	buffer = model_input->padding;
+	fwrite(&buffer, sizeof(UInt32), 1, fp);
+
+	// 7. channel_count / kernel_size / stride 저장 배열 저장
+	for (int i = 0; i < model->initializer.Conv_layer_count; i++)
+	{
+		buffer = model_input->channel_count[i];
+		fwrite(&buffer, sizeof(UInt32), 1, fp);
+		buffer = model_input->cnn_kernel_size[i];
+		fwrite(&buffer, sizeof(UInt32), 1, fp);
+		buffer = model_input->stride[i];
+		fwrite(&buffer, sizeof(UInt32), 1, fp);
+	}
+
+	// 8. pooling_window_size 저장
+	for (int i = 0; i < model->initializer.Pooling_layer_count; i++)
+	{
+		buffer = model_input->pooling_window_size[i];
+		fwrite(&buffer, sizeof(UInt32), 1, fp);
+	}
+
+	// 9. node 개수 저장
+	for (int i = 0; i < model->initializer.FCN_layer_count; i++)
+	{
+		buffer = model_input->node_count[i];
+		fwrite(&buffer, sizeof(UInt32), 1, fp);
+	}
+
+	// 10. 손실 함수 저장
+	buffer = model_input->metric;
+	fwrite(&buffer, sizeof(UInt32), 1, fp);
+
+	Float64 fBuffer = 0.0;
+
+	// 11. 학습률 저장
+	fBuffer = model_input->learning_rate;
+	fwrite(&fBuffer, sizeof(Float64), 1, fp);
+
+	// 12. 가중치 저장
+	fwrite(weights, sizeof(Weight), model->initializer.cnn_weights_count + model->initializer.fcn_weights_count, fp);
+
+	fclose(fp);
+	return 0;
+}
+
+Model load_model(Str* filename)
+{
+	UInt32 buffer = 0;
+	Float64 lr = 0;
+	Model_Input model_input;
+	UInt32 Conv_layer_count, Pooling_layer_count, FCN_layer_count;
+	
+	FILE* fp;
+	fopen_s(&fp, filename, "rb");
+
+	// 1. 총 레이어 수 읽기
+	fread(&buffer, sizeof(UInt32), 1, fp);
+	model_input.layer_count = buffer;
+
+	// 2. cnn 레이어 수 읽기
+	fread(&Conv_layer_count, sizeof(UInt32), 1, fp);
+
+	// 3. pooling 레이어 수 읽기
+	fread(&Pooling_layer_count, sizeof(UInt32), 1, fp);
+
+	// 4. fcn 레이어 수 읽기
+	fread(&FCN_layer_count, sizeof(UInt32), 1, fp);
+
+	// 5. 레이어 종류 / 활성화 함수 읽기
+	model_input.layer = (Layer*)calloc(model_input.layer_count, sizeof(Layer));
+	model_input.activation = (Activation_Function*)calloc(model_input.layer_count, sizeof(Activation_Function));
+	for (int i = 0; i < model_input.layer_count; i++)
+	{
+		fread(&buffer, sizeof(UInt32), 1, fp);
+		model_input.layer[i] = (Layer) buffer;
+		fread(&buffer, sizeof(UInt32), 1, fp);
+		model_input.activation[i] = (Activation_Function) buffer;
+	}
+
+	// 6. 패딩 여부 읽기
+	fread(&buffer, sizeof(UInt32), 1, fp);
+	model_input.padding = (Bool) buffer;
+	
+	// 7. channel_count / kernel_size / stride 배열 읽기
+	model_input.channel_count = (UInt32*)calloc(Conv_layer_count, sizeof(UInt32));
+	model_input.cnn_kernel_size = (UInt32*)calloc(Conv_layer_count, sizeof(UInt32));
+	model_input.stride = (UInt32*)calloc(Conv_layer_count, sizeof(UInt32));
+	for (int i = 0; i < Conv_layer_count; i++)
+	{
+		fread(&buffer, sizeof(UInt32), 1, fp);
+		model_input.channel_count[i] = buffer;
+		fread(&buffer, sizeof(UInt32), 1, fp);
+		model_input.cnn_kernel_size[i] = buffer;
+		fread(&buffer, sizeof(UInt32), 1, fp);
+		model_input.stride[i] = buffer;
+	}
+
+	// 8. pooling window size 읽기
+	model_input.pooling_window_size = (UInt32*)calloc(Pooling_layer_count, sizeof(UInt32));
+	for (int i = 0; i < Pooling_layer_count; i++)
+	{
+		fread(&buffer, sizeof(UInt32), 1, fp);
+		model_input.pooling_window_size[i] = buffer;
+	}
+
+	// 9. node 개수 읽기
+	model_input.node_count = (UInt32*)calloc(FCN_layer_count, sizeof(UInt32));
+	for (int i = 0; i < FCN_layer_count; i++)
+	{
+		fread(&buffer, sizeof(UInt32), 1, fp);
+		model_input.node_count[i] = buffer;
+	}
+
+	// 10. 손실함수 읽기
+	fread(&buffer, sizeof(UInt32), 1, fp);
+	model_input.metric = (Metric) buffer;
+
+	// 11. 학습률 읽기
+	fread(&lr, sizeof(Float64), 1, fp);
+	model_input.learning_rate = lr;
+
+	// 12. 가중치 읽기
+	Model model = create_Model(model_input);
+	Weight* weights_buffer = (Weight*)calloc(model.initializer.cnn_weights_count + model.initializer.fcn_weights_count, sizeof(Weight));
+	fread(weights_buffer, sizeof(Weight), model.initializer.cnn_weights_count + model.initializer.fcn_weights_count, fp);
+
+	if (model.initializer.Conv_layer_count + model.initializer.Pooling_layer_count > 0)
+	{
+		for (int i = 0; i < model.initializer.cnn_weights_count; i++)
+			model.parameters.CNN.kernels[i] = weights_buffer[i];
+
+		for (int i = 0; i < model.initializer.fcn_weights_count; i++)
+			model.parameters.FCN.weights[i] = weights_buffer[model.initializer.cnn_weights_count + i];
+	}
+	else
+	{
+		for (int i = 0; i < model.initializer.fcn_weights_count; i++)
+			model.parameters.FCN.weights[i] = weights_buffer[i];
+	}
+
+	fclose(fp);
+	free(weights_buffer);
+
+	return model;
+}
+
+int save_weights(Model* model, Weight* weights, Float64 score)
+{
+	Float64 maxScore = 0.0;
+	
+	if (score <= maxScore)
+		return 0;
+
+	if (model->initializer.Conv_layer_count + model->initializer.Pooling_layer_count > 0)
+	{
+		for (int i = 0; i < model->initializer.cnn_weights_count; i++)
+			weights[i] = model->parameters.CNN.kernels[i];
+
+		for (int i = 0; i < model->initializer.fcn_weights_count; i++)
+			weights[model->initializer.cnn_weights_count + i] = model->parameters.FCN.weights[i];
+	}
+	else
+	{
+		for (int i = 0; i < model->initializer.fcn_weights_count; i++)
+			weights[i] = model->parameters.FCN.weights[i];
+	}
+
+	return 0;
+}
+
 UInt8 predict(Float64* image, Model* model)
 {
 	//printf("예측 수행 중 \n");
@@ -895,6 +1115,30 @@ int model_destroy(Model* model)
 		free(model->parameters.CNN.max_pooling_address_map);
 		free(model->parameters.CNN.max_pooling_address_map_start_point);
 	}
+
+	return 0;
+}
+
+int model_input_destroy(Model* model)
+{
+	Model_Input* model_input = &(model->input);
+
+	if (model->initializer.FCN_layer_count > 0)
+		free(model_input->node_count);
+
+	
+	if (model->initializer.Conv_layer_count > 0)
+	{
+		free(model_input->channel_count);
+		free(model_input->cnn_kernel_size);
+		free(model_input->stride);
+	}
+
+	if (model->initializer.Pooling_layer_count > 0)
+		free(model_input->pooling_window_size);
+	
+	free(model_input->layer);
+	free(model_input->activation);
 
 	return 0;
 }
