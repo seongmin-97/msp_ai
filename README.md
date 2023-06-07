@@ -2,7 +2,7 @@
 
 ## MNIST DATASET을 사용해 Deep Learning을 C로 구현
 
-### Structure
+## Structure
 
 ##### rawAI 폴더 
 소스 코드
@@ -11,7 +11,7 @@
 ##### rawAi.sln
 visual studio 프로젝트 파일
 
-### rawAI 폴더 내부
+## rawAI 폴더 내부
 
 ##### loadData.c, loadData.hpp 
 데이터 로드 (데이터 로드에서만 이미지를 읽기 위해 opencv 라이브러리 사용)
@@ -30,7 +30,7 @@ MSE 함수와 그 미분 정의
 ##### weight.cpp, weight.h 
 가중치 초기화 기법 정의 (각 레이어 가중치)
 
-### 사용법
+## 사용법
 
 - read_PNG() 함수로 데이터셋 read (입력 값 : 데이터를 저장할 Data 구조체, 데이터 경로)<br>
 - create_Model() 함수로 모델 생성 (입력 값 : Model_Input 구조체) (main.cpp에서 Model_Input 구조체 정의 참고 (input2 변수))<br>
