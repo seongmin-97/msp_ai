@@ -34,3 +34,9 @@ MSE 함수와 그 미분 정의
 - create_Model() 함수로 모델 생성 (입력 값 : Model_Input 구조체) (main.cpp에서 Model_Input 구조체 정의 참고 (input2 변수))<br>
 - train_Model() 함수로 학습 (입력 값 : Model 구조체, 학습 데이터, 테스트 데이터, Epoch, 모델 저장 여부)<br>
 - accuracy_score() 함수로 모델의 정확도 평가 (입력 값 : 평가할 데이터 셋, Model 구조체)<br>
+
+## 보고서
+
+MLP (FCN 레이어) : http://naver.me/GItgaQUD <br>
+CNN 레이어 : http://naver.me/FZ9PLSGd <br>
+https://seongmin-project-db.tistory.com/6
